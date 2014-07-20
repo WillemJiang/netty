@@ -100,6 +100,7 @@ import java.util.List;
  */
 public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
 
+    private static final String EMPTY_VALUE = "";
     private final int maxChunkSize;
     private final boolean chunkedSupported;
     private final LineParser headerParser;
@@ -110,8 +111,8 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
     private HttpMessage message;
     private long chunkSize;
     private long contentLength = Long.MIN_VALUE;
-    private String name;
-    private String value;
+    private CharSequence name;
+    private CharSequence value;
 
     /**
      * The internal state of {@link HttpObjectDecoder}.
@@ -505,14 +506,12 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
             do {
                 char firstChar = line.charAt(0);
                 if (name != null && (firstChar == ' ' || firstChar == '\t')) {
-                    value = value + ' ' + line.toString().trim();
+                    value = value.toString() + ' ' + line.toString().trim();
                 } else {
                     if (name != null) {
                         headers.add(name, value);
                     }
-                    String[] header = splitHeader(line);
-                    name = header[0];
-                    value = header[1];
+                    splitHeader(line);
                 }
 
                 line = headerParser.parse(buffer);
@@ -526,8 +525,10 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
         if (name != null) {
             headers.add(name, value);
         }
+        // reset name and value fields
         name = null;
         value = null;
+
         State nextState;
 
         if (isContentAlwaysEmpty(message)) {
@@ -556,7 +557,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
         if (line == null) {
             return null;
         }
-        String lastHeader = null;
+        CharSequence lastHeader = null;
         if (line.length() > 0) {
             LastHttpContent trailer = new DefaultLastHttpContent(Unpooled.EMPTY_BUFFER, validateHeaders);
             do {
@@ -571,14 +572,17 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
                         // Content-Length, Transfer-Encoding, or Trailer
                     }
                 } else {
-                    String[] header = splitHeader(line);
-                    String name = header[0];
-                    if (!HttpHeaders.equalsIgnoreCase(name, HttpHeaders.Names.CONTENT_LENGTH) &&
-                        !HttpHeaders.equalsIgnoreCase(name, HttpHeaders.Names.TRANSFER_ENCODING) &&
-                        !HttpHeaders.equalsIgnoreCase(name, HttpHeaders.Names.TRAILER)) {
-                        trailer.trailingHeaders().add(name, header[1]);
+                    splitHeader(line);
+                    CharSequence headerName = name;
+                    if (!HttpHeaders.equalsIgnoreCase(headerName, HttpHeaders.Names.CONTENT_LENGTH) &&
+                        !HttpHeaders.equalsIgnoreCase(headerName, HttpHeaders.Names.TRANSFER_ENCODING) &&
+                        !HttpHeaders.equalsIgnoreCase(headerName, HttpHeaders.Names.TRAILER)) {
+                        trailer.trailingHeaders().add(headerName, value);
                     }
                     lastHeader = name;
+                    // reset name and value fields
+                    name = null;
+                    value = null;
                 }
 
                 line = headerParser.parse(buffer);
@@ -634,7 +638,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
                 cStart < cEnd? sb.substring(cStart, cEnd) : "" };
     }
 
-    private static String[] splitHeader(AppendableCharSequence sb) {
+    private void splitHeader(AppendableCharSequence sb) {
         final int length = sb.length();
         int nameStart;
         int nameEnd;
@@ -657,19 +661,14 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
             }
         }
 
+        name = sb.substring(nameStart, nameEnd);
         valueStart = findNonWhitespace(sb, colonEnd);
         if (valueStart == length) {
-            return new String[] {
-                    sb.substring(nameStart, nameEnd),
-                    ""
-            };
+            value = EMPTY_VALUE;
+        } else {
+            valueEnd = findEndOfString(sb);
+            value = sb.substring(valueStart, valueEnd);
         }
-
-        valueEnd = findEndOfString(sb);
-        return new String[] {
-                sb.substring(nameStart, nameEnd),
-                sb.substring(valueStart, valueEnd)
-        };
     }
 
     private static int findNonWhitespace(CharSequence sb, int offset) {
