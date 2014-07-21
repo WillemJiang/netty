@@ -342,6 +342,10 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
             while (buffer.isReadable()) {
                 byte next = buffer.readByte();
                 if (next == HttpConstants.CR) {
+                    if (!buffer.isReadable()) {
+                        // Not enough bytes to continue
+                        break;
+                    }
                     if (buffer.readByte() == HttpConstants.LF) {
                         state = State.READ_CHUNK_SIZE;
                         return;
