@@ -103,7 +103,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
     private static final String EMPTY_VALUE = "";
     private final int maxChunkSize;
     private final boolean chunkedSupported;
-    private final LineParser headerParser;
+    private final HeaderParser headerParser;
     private final LineParser lineParser;
     protected final boolean validateHeaders;
 
@@ -111,6 +111,8 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
     private HttpMessage message;
     private long chunkSize;
     private long contentLength = Long.MIN_VALUE;
+
+    // These will be updated by splitHeader(...) method
     private CharSequence name;
     private CharSequence value;
 
@@ -177,7 +179,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
 
         AppendableCharSequence seq = new AppendableCharSequence(128);
         lineParser = new LineParser(seq, maxInitialLineLength);
-        headerParser = new LineParser(seq, maxHeaderSize);
+        headerParser = new HeaderParser(seq, maxHeaderSize);
     }
 
     @Override
@@ -208,7 +210,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
             state = State.READ_HEADER;
             // fall-through
         } catch (Exception e) {
-            out.add(invalidMessage(e));
+            out.add(invalidMessage(e, buffer));
             return;
         }
         case READ_HEADER: try {
@@ -255,7 +257,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
                     return;
             }
         } catch (Exception e) {
-            out.add(invalidMessage(e));
+            out.add(invalidMessage(e, buffer));
             return;
         }
         case READ_VARIABLE_LENGTH_CONTENT: {
@@ -314,7 +316,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
             state = State.READ_CHUNKED_CONTENT;
             // fall-through
         } catch (Exception e) {
-            out.add(invalidChunk(e));
+            out.add(invalidChunk(e, buffer));
             return;
         }
         case READ_CHUNKED_CONTENT: {
@@ -369,7 +371,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
             reset();
             return;
         } catch (Exception e) {
-            out.add(invalidChunk(e));
+            out.add(invalidChunk(e, buffer));
             return;
         }
         case BAD_MESSAGE: {
@@ -448,6 +450,8 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
     }
 
     private void reset() {
+        headerParser.resetSize();
+        lineParser.resetSize();
         HttpMessage message = this.message;
         this.message = null;
         name = null;
@@ -464,7 +468,7 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
         state = State.SKIP_CONTROL_CHARS;
     }
 
-    private HttpMessage invalidMessage(Exception cause) {
+    private HttpMessage invalidMessage(Exception cause, ByteBuf in) {
         state = State.BAD_MESSAGE;
         if (message != null) {
             message.setDecoderResult(DecoderResult.failure(cause));
@@ -475,14 +479,20 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
 
         HttpMessage ret = message;
         message = null;
+
+        // Consume everything so we not trigger a DecoderException as nothing was read
+        in.skipBytes(in.readableBytes());
         return ret;
     }
 
-    private HttpContent invalidChunk(Exception cause) {
+    private HttpContent invalidChunk(Exception cause, ByteBuf in) {
         state = State.BAD_MESSAGE;
         HttpContent chunk = new DefaultLastHttpContent(Unpooled.EMPTY_BUFFER);
         chunk.setDecoderResult(DecoderResult.failure(cause));
         message = null;
+
+        // Consume everything so we not trigger a DecoderException as nothing was read
+        in.skipBytes(in.readableBytes());
         return chunk;
     }
 
@@ -705,19 +715,18 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
         return result;
     }
 
-    private static final class LineParser implements ByteBufProcessor {
+    private static class HeaderParser implements ByteBufProcessor {
         private final AppendableCharSequence seq;
         private final int maxLength;
         private int size;
 
-        LineParser(AppendableCharSequence seq, int maxLength) {
+        HeaderParser(AppendableCharSequence seq, int maxLength) {
             this.seq = seq;
             this.maxLength = maxLength;
         }
 
         public AppendableCharSequence parse(ByteBuf buffer) {
             seq.reset();
-            size = 0;
             int i = buffer.forEachByte(this);
             if (i == -1) {
                 return null;
@@ -740,13 +749,41 @@ public abstract class HttpObjectDecoder extends ByteToMessageDecoder {
                 //    or close the connection.
                 //       No need to notify the upstream handlers - just log.
                 //       If decoding a response, just throw an exception.
-                throw new TooLongFrameException(
-                        "An HTTP line is larger than " + maxLength +
-                                " bytes.");
+                throw newException(size, maxLength);
             }
             size ++;
             seq.append(nextByte);
             return true;
+        }
+
+        public void resetSize() {
+            size = 0;
+        }
+
+        protected TooLongFrameException newException(int size, int maxLength) {
+            return new TooLongFrameException(
+                    "An HTTP header is larger than " + maxLength +
+                            " bytes.");
+        }
+    }
+
+    private static final class LineParser extends HeaderParser {
+
+        LineParser(AppendableCharSequence seq, int maxLength) {
+            super(seq, maxLength);
+        }
+
+        @Override
+        public AppendableCharSequence parse(ByteBuf buffer) {
+            resetSize();
+            return super.parse(buffer);
+        }
+
+        @Override
+        protected TooLongFrameException newException(int size, int maxLength) {
+            return new TooLongFrameException(
+                    "An HTTP line is larger than " + maxLength +
+                            " bytes.");
         }
     }
 }
