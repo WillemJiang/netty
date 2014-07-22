@@ -19,7 +19,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteWriter;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.FileRegion;
-import io.netty.handler.codec.MessageToBufferedByteEncoder;
+import io.netty.handler.codec.BufferedMessageToByteEncoder;
 import io.netty.util.CharsetUtil;
 import io.netty.util.internal.StringUtil;
 
@@ -38,7 +38,7 @@ import static io.netty.handler.codec.http.HttpConstants.*;
  * To implement the encoder of such a derived protocol, extend this class and
  * implement all abstract methods properly.
  */
-public abstract class HttpObjectEncoder<H extends HttpMessage> extends MessageToBufferedByteEncoder<Object> {
+public abstract class HttpObjectEncoder<H extends HttpMessage> extends BufferedMessageToByteEncoder<Object> {
     private static final byte[] CRLF = { CR, LF };
     private static final byte[] ZERO_CRLF = { '0', CR, LF };
     private static final byte[] ZERO_CRLF_CRLF = { '0', CR, LF, CR, LF };

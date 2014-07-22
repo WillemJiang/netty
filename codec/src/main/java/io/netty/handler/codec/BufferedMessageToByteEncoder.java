@@ -34,18 +34,18 @@ import java.nio.ByteBuffer;
 
 /**
  * {@link ChannelOutboundHandlerAdapter} which encodes message in a stream-like fashion.
- * The difference between {@link MessageToBufferedByteEncoder} and {@link MessageToByteEncoder} is
- * that {@link MessageToBufferedByteEncoder}  will try to write multiple writes into one {@link ByteBuf} up to
+ * The difference between {@link BufferedMessageToByteEncoder} and {@link MessageToByteEncoder} is
+ * that {@link BufferedMessageToByteEncoder}  will try to write multiple writes into one {@link ByteBuf} up to
  * {@code initialBufferCapacity} and only write it to the next {@link ChannelOutboundHandler} in the
  * {@link ChannelPipeline} if needed.
  *
- * You should use this {@link MessageToBufferedByteEncoder} if you expect to either write messages in multiple parts
- * or if the used protocol supports PIPELINING.
+ * You should use this {@link BufferedMessageToByteEncoder} if you expect to either write messages in multiple parts
+ * or if the used protocol supports <strong>PIPELINING</strong>.
  *
  * Example implementation which encodes {@link Integer}s to a {@link ByteBuf}.
  *
  * <pre>
- *     public class IntegerEncoder extends {@link MessageToBufferedByteEncoder}&lt;{@link Integer}&gt; {
+ *     public class IntegerEncoder extends {@link BufferedMessageToByteEncoder}&lt;{@link Integer}&gt; {
  *         {@code @Override}
  *         public void encode({@link ChannelHandlerContext} ctx, {@link Integer} msg, {@link Encoder} encoder)
  *                 throws {@link Exception} {
@@ -54,7 +54,7 @@ import java.nio.ByteBuffer;
  *     }
  * </pre>
  */
-public abstract class MessageToBufferedByteEncoder<I> extends ChannelOutboundHandlerAdapter {
+public abstract class BufferedMessageToByteEncoder<I> extends ChannelOutboundHandlerAdapter {
 
     private final TypeParameterMatcher matcher;
     private final boolean preferDirect;
@@ -64,28 +64,28 @@ public abstract class MessageToBufferedByteEncoder<I> extends ChannelOutboundHan
     private Encoder writer;
 
     /**
-     * @see {@link #MessageToBufferedByteEncoder(int)} with {@code 1024} as parameter.
+     * @see {@link #BufferedMessageToByteEncoder(int)} with {@value #DEFAULT_BUFFER_SIZE} as parameter.
      */
-    protected MessageToBufferedByteEncoder() {
+    protected BufferedMessageToByteEncoder() {
         this(DEFAULT_BUFFER_SIZE);
     }
 
     /**
      * Create a new instance
      *
-     * @param initialBufferCapacity            The size of the buffer when it is allocated.
+     * @param initialBufferCapacity            the size of the buffer when it is allocated
      */
-    protected MessageToBufferedByteEncoder(int initialBufferCapacity) {
+    protected BufferedMessageToByteEncoder(int initialBufferCapacity) {
         this(true, initialBufferCapacity);
     }
 
     /**
      * Create a new instance
      *
-     * @param outboundMessageType   The tpye of messages to match
-     * @param initialBufferCapacity The size of the buffer when it is allocated.
+     * @param outboundMessageType   the type of messages to match
+     * @param initialBufferCapacity the size of the buffer when it is allocated
      */
-    protected MessageToBufferedByteEncoder(Class<? extends I> outboundMessageType, int initialBufferCapacity) {
+    protected BufferedMessageToByteEncoder(Class<? extends I> outboundMessageType, int initialBufferCapacity) {
         this(outboundMessageType, true, initialBufferCapacity);
     }
 
@@ -95,12 +95,12 @@ public abstract class MessageToBufferedByteEncoder<I> extends ChannelOutboundHan
      * @param preferDirect          {@code true} if a direct {@link ByteBuf} should be tried to be used as target for
      *                              the encoded messages. If {@code false} is used it will allocate a heap
      *                              {@link ByteBuf}, which is backed by an byte array.
-     * @param initialBufferCapacity The size of the buffer when it is allocated.
+     * @param initialBufferCapacity the size of the buffer when it is allocated.
      */
-    protected MessageToBufferedByteEncoder(boolean preferDirect, int initialBufferCapacity) {
+    protected BufferedMessageToByteEncoder(boolean preferDirect, int initialBufferCapacity) {
         checkSharable();
         checkBufferSize(initialBufferCapacity);
-        matcher = TypeParameterMatcher.find(this, MessageToBufferedByteEncoder.class, "I");
+        matcher = TypeParameterMatcher.find(this, BufferedMessageToByteEncoder.class, "I");
         this.initialBufferCapacity = initialBufferCapacity;
         this.preferDirect = preferDirect;
     }
@@ -108,13 +108,13 @@ public abstract class MessageToBufferedByteEncoder<I> extends ChannelOutboundHan
     /**
      * Create a new instance
      *
-     * @param outboundMessageType   The tpye of messages to match
+     * @param outboundMessageType   the type of messages to match
      * @param preferDirect          {@code true} if a direct {@link ByteBuf} should be tried to be used as target for
      *                              the encoded messages. If {@code false} is used it will allocate a heap
      *                              {@link ByteBuf}, which is backed by an byte array.
-     * @param initialBufferCapacity The size of the buffer when it is allocated.
+     * @param initialBufferCapacity the size of the buffer when it is allocated.
      */
-    protected MessageToBufferedByteEncoder(
+    protected BufferedMessageToByteEncoder(
             Class<? extends I> outboundMessageType, boolean preferDirect, int initialBufferCapacity) {
         checkSharable();
         checkBufferSize(initialBufferCapacity);
@@ -126,14 +126,13 @@ public abstract class MessageToBufferedByteEncoder<I> extends ChannelOutboundHan
     private static void checkBufferSize(int initialBufferCapacity) {
         if (initialBufferCapacity < 0) {
             throw new IllegalArgumentException(
-                    "initialBufferCapacity must be a >= 0: " +
-                            initialBufferCapacity);
+                    "initialBufferCapacity: " + initialBufferCapacity + " (expected: >= 0)");
         }
     }
 
     private void checkSharable() {
         if (isSharable()) {
-            throw new IllegalStateException("@Sharable annotation is not allowed");
+            throw new IllegalStateException("@Sharable annotation not allowed");
         }
     }
 
@@ -205,7 +204,7 @@ public abstract class MessageToBufferedByteEncoder<I> extends ChannelOutboundHan
     /**
      * Do nothing by default, sub-classes may override this method.
      */
-    protected void handlerRemoved0(@SuppressWarnings("unused")ChannelHandlerContext ctx) throws Exception {
+    protected void handlerRemoved0(@SuppressWarnings("unused") ChannelHandlerContext ctx) throws Exception {
         // NOOP
     }
 
@@ -216,7 +215,7 @@ public abstract class MessageToBufferedByteEncoder<I> extends ChannelOutboundHan
      * @param ctx           the {@link ChannelHandlerContext} which this {@link MessageToByteEncoder} belongs to
      * @param msg           the message to encode
      * @param out           the {@link Encoder} into which the encoded message will be written
-     * @throws Exception    is thrown if an error accour
+     * @throws Exception    is thrown on error
      */
     protected abstract void encode(ChannelHandlerContext ctx, I msg, Encoder out) throws Exception;
 
@@ -234,7 +233,7 @@ public abstract class MessageToBufferedByteEncoder<I> extends ChannelOutboundHan
             this.initialBufferCapacity = initialBufferCapacity;
         }
 
-        private void init() {
+        void init() {
             if (wrapped == null) {
                 wrapped = allocateBuffer();
             }
@@ -359,14 +358,14 @@ public abstract class MessageToBufferedByteEncoder<I> extends ChannelOutboundHan
             return this;
         }
 
-        private void notifyLater(ChannelPromise promise) {
+        void notifyLater(ChannelPromise promise) {
             long delta = wrapped.writerIndex() - writerIndex;
             ctx.channel().unsafe().outboundBuffer().incrementPendingOutboundBytes(delta);
             // add to notifier so the promise will be notified later once we wrote everything
             notifier.add(promise, delta);
         }
 
-        private void flush() {
+        void flush() {
             ByteBuf buffer = wrapped;
             if (buffer == null) {
                 return;
