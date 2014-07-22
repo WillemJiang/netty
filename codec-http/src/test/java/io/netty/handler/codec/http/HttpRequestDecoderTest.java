@@ -18,6 +18,7 @@ package io.netty.handler.codec.http;
 
 import io.netty.buffer.Unpooled;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.netty.handler.codec.TooLongFrameException;
 import io.netty.util.CharsetUtil;
 import org.junit.Test;
 
@@ -174,5 +175,27 @@ public class HttpRequestDecoderTest {
         channel.writeInbound(Unpooled.wrappedBuffer(request.getBytes(CharsetUtil.US_ASCII)));
         HttpRequest req = (HttpRequest) channel.readInbound();
         assertEquals("", req.headers().get("EmptyHeader"));
+    }
+
+    @Test
+    public void testTooBigHeader() {
+        EmbeddedChannel channel = new EmbeddedChannel(new HttpRequestDecoder(1024, 32, 64));
+        String crlf = "\r\n";
+        String request =  "GET /some/path HTTP/1.1" + crlf +
+                "Host: localhost" + crlf +
+                "X-Header: VeryLongValue" + crlf + crlf;
+        channel.writeInbound(Unpooled.wrappedBuffer(request.getBytes(CharsetUtil.US_ASCII)));
+        HttpRequest req = (HttpRequest) channel.readInbound();
+        assertTrue(req.getDecoderResult().cause() instanceof TooLongFrameException);
+    }
+
+    @Test
+    public void testTooLongInitialLine() {
+        EmbeddedChannel channel = new EmbeddedChannel(new HttpRequestDecoder(16, 32, 64));
+        String crlf = "\r\n";
+        String request =  "GET /some/very/long/path HTTP/1.1" + crlf;
+        channel.writeInbound(Unpooled.wrappedBuffer(request.getBytes(CharsetUtil.US_ASCII)));
+        HttpRequest req = (HttpRequest) channel.readInbound();
+        assertTrue(req.getDecoderResult().cause() instanceof TooLongFrameException);
     }
 }
